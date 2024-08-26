@@ -1,0 +1,82 @@
+---
+- name: Install and configure RabbitMQ
+  hosts: all
+  become: true
+  tasks:
+    - name: Install wget
+      yum:
+        name: wget
+        state: present
+
+    - name: Install centos-release-rabbitmq-38
+      dnf:
+        name: centos-release-rabbitmq-38
+        state: present
+
+    - name: Install rabbitmq-server
+      dnf:
+        name: rabbitmq-server
+        enablerepo: centos-rabbitmq-38
+        state: present
+
+    - name: Start and enable RabbitMQ service
+      systemd:
+        name: rabbitmq-server
+        enabled: true
+        state: started
+
+    - name: Configure RabbitMQ to allow remote connections
+      copy:
+        content: "[{rabbit, [{loopback_users, []}]}]."
+        dest: /etc/rabbitmq/rabbitmq.config
+        owner: rabbitmq
+        group: rabbitmq
+        mode: '0644'
+
+    - name: Add RabbitMQ user 'test' with administrator privileges
+      command: rabbitmqctl add_user test test
+      register: add_user_output
+      failed_when: add_user_output.rc not in [0, 70]
+      ignore_errors: true
+
+    - name: Set RabbitMQ user 'test' as administrator
+      command: rabbitmqctl set_user_tags test administrator
+      when: add_user_output.rc == 0
+
+    - name: Restart RabbitMQ service to apply changes
+      systemd:
+        name: rabbitmq-server
+        state: restarted
+
+    - name: Install firewalld
+      yum:
+        name: firewalld
+        state: present
+
+    - name: Start and enable firewalld
+      systemd:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Allow access to RabbitMQ on port 5672 through the firewall
+      firewalld:
+        port: 5672/tcp
+        permanent: true
+        state: enabled
+        immediate: yes
+
+    - name: Ensure RabbitMQ service is started and enabled
+      systemd:
+        name: rabbitmq-server
+        enabled: true
+        state: started
+
+    - name: Check status of RabbitMQ service
+      systemd:
+        name: rabbitmq-server
+      register: rabbitmq_status
+
+    - name: Output RabbitMQ service status
+      debug:
+        var: rabbitmq_status

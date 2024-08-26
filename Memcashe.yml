@@ -1,0 +1,49 @@
+---
+- name: Install and Configure Memcached
+  hosts: mc01
+  become: true
+  tasks:
+    - name: Install EPEL release and Memcached
+      yum:
+        name:
+          - epel-release
+          - memcached
+        state: present
+
+    - name: Start and enable Memcached service
+      service:
+        name: memcached
+        state: started
+        enabled: true
+
+    - name: Configure Memcached to listen on all interfaces
+      lineinfile:
+        path: /etc/sysconfig/memcached
+        regexp: '^OPTIONS='
+        line: 'OPTIONS="-l 0.0.0.0"'
+      notify:
+        - Restart Memcached
+
+    - name: Ensure firewalld is installed
+      yum:
+        name: firewalld
+        state: present
+
+    - name: Start and enable firewalld
+      service:
+        name: firewalld
+        state: started
+        enabled: true
+
+    - name: Allow TCP access to Memcached on port 11211
+      firewalld:
+        port: 11211/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+  handlers:
+    - name: Restart Memcached
+      service:
+        name: memcached
+        state: restarted

@@ -1,0 +1,113 @@
+---
+- name: Set up MariaDB with Ansible
+  hosts: all
+  become: true
+  tasks:
+    - name: Install EPEL release
+      yum:
+        name: epel-release
+        state: present
+
+    - name: Install required packages
+      yum:
+        name:
+          - mariadb-server
+          - git
+          - python3-PyMySQL   # Install PyMySQL library
+        state: present
+
+    - name: Start and enable MariaDB service
+      service:
+        name: mariadb
+        state: started
+        enabled: true
+
+    - name: Create .my.cnf file for root user
+      copy:
+        dest: /root/.my.cnf
+        content: |
+          [client]
+          user=root
+          password=admin123
+      owner: root
+      group: root
+      mode: '0600'
+
+    - name: Run mysql_secure_installation script
+      shell: |
+        mysql -e "SET PASSWORD FOR 'root'@'localhost' = PASSWORD('admin123');"
+        mysql -e "DELETE FROM mysql.user WHERE User='';"
+        mysql -e "DELETE FROM mysql.user WHERE User='root' AND Host!='localhost';"
+        mysql -e "DROP DATABASE test;"
+        mysql -e "FLUSH PRIVILEGES;"
+      args:
+        executable: /bin/bash
+
+    - name: Create MariaDB root user with password
+      mysql_user:
+        name: root
+        password: admin123
+        host: localhost
+        state: present
+        login_user: root
+        login_password: admin123
+        login_unix_socket: /var/lib/mysql/mysql.sock
+
+    - name: Remove anonymous users
+      mysql_user:
+        name: ''
+        host: localhost
+        state: absent
+        login_user: root
+        login_password: admin123
+
+    - name: Disallow root login remotely
+      mysql_user:
+        name: root
+        host: '%'
+        state: absent
+        login_user: root
+        login_password: admin123
+
+    - name: Create MariaDB database
+      mysql_db:
+        name: accounts
+        state: present
+        login_user: root
+        login_password: admin123
+
+    - name: Create MariaDB user 'admin' with privileges
+      mysql_user:
+        name: admin
+        password: admin123
+        host: '%'
+        priv: "accounts.*:ALL"
+        state: present
+        login_user: root
+        login_password: admin123
+
+    - name: Clone source code repository
+      git:
+        repo: https://github.com/hkhcoder/vprofile-project.git
+        dest: /home/ansible/vprofile-project
+        version: main
+
+    - name: Initialize database with backup
+      mysql_db:
+        name: accounts
+        state: import
+        target: /home/ansible/vprofile-project/src/main/resources/db_backup.sql
+        login_user: root
+        login_password: admin123
+
+    - name: Restart MariaDB service
+      service:
+        name: mariadb
+        state: restarted
+
+    - name: Start and configure firewall to allow access to MariaDB on port 3306
+      firewalld:
+        port: 3306/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes

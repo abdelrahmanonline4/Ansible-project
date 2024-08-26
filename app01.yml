@@ -1,0 +1,144 @@
+---
+- name: Setup Tomcat and Deploy Application
+  hosts: all
+  become: yes
+  vars:
+    tomcat_version: "9.0.75"
+    tomcat_tarball: "apache-tomcat-{{ tomcat_version }}.tar.gz"
+    tomcat_dir: "/usr/local/tomcat"
+    app_repo: "https://github.com/hkhcoder/vprofile-project.git"
+    app_dest: "/home/vagrant/vprofile-project"
+    war_file: "/home/vagrant/vprofile-project/target/vprofile-v2.war"
+
+  tasks:
+    - name: Install required packages
+      dnf:
+        name:
+          - java-11-openjdk
+          - java-11-openjdk-devel
+          - git
+          - maven
+          - wget
+          - firewalld
+        state: present
+
+    - name: Download Tomcat package
+      get_url:
+        url: "https://archive.apache.org/dist/tomcat/tomcat-9/v{{ tomcat_version }}/bin/{{ tomcat_tarball }}"
+        dest: "/tmp/{{ tomcat_tarball }}"
+
+    - name: Extract Tomcat package
+      unarchive:
+        src: "/tmp/{{ tomcat_tarball }}"
+        dest: /tmp/
+        remote_src: yes
+
+    - name: Add tomcat user
+      user:
+        name: tomcat
+        home: "{{ tomcat_dir }}"
+        shell: /sbin/nologin
+        state: present
+
+    - name: Copy Tomcat files to {{ tomcat_dir }}
+      copy:
+        src: /tmp/apache-tomcat-{{ tomcat_version }}/
+        dest: "{{ tomcat_dir }}/"
+        remote_src: yes
+        owner: tomcat
+        group: tomcat
+        mode: 'u+rwX,g+rwX,o+rX'
+
+    - name: Create Tomcat systemd service file
+      copy:
+        dest: /etc/systemd/system/tomcat.service
+        content: |
+          [Unit]
+          Description=Apache Tomcat Web Application Container
+          After=network.target
+
+          [Service]
+          Type=forking
+
+          User=tomcat
+          Group=tomcat
+          Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk"
+          Environment="CATALINA_PID={{ tomcat_dir }}/temp/tomcat.pid"
+          Environment="CATALINA_HOME={{ tomcat_dir }}"
+          Environment="CATALINA_BASE={{ tomcat_dir }}"
+          Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"
+          Environment="JAVA_OPTS=-Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom"
+
+          ExecStart={{ tomcat_dir }}/bin/startup.sh
+          ExecStop={{ tomcat_dir }}/bin/shutdown.sh
+
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd and start Tomcat service
+      systemd:
+        name: tomcat
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Ensure firewalld is started and enabled
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Allow port 8080 in firewall
+      firewalld:
+        port: 8080/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Reload firewalld
+      command: firewall-cmd --reload
+
+    - name: Clone application repository
+      git:
+          repo: "{{ app_repo }}"
+          dest: "{{ app_dest }}"
+          version: main
+          clone: yes
+          timeout: 300  # تعيين وقت المهلة إلى 300 ثانية
+
+    - name: Build application code
+      shell: |
+        echo "Building application in {{ app_dest }}"
+        mvn clean install
+      args:
+        chdir: "{{ app_dest }}"
+
+    - name: Deploy application artifact
+      block:
+        - name: Stop Tomcat
+          systemd:
+            name: tomcat
+            state: stopped
+
+        - name: Remove old Tomcat webapps
+          file:
+            path: "{{ tomcat_dir }}/webapps/ROOT*"
+            state: absent
+
+        - name: Copy new WAR file
+          copy:
+            src: "{{ war_file }}"
+            dest: "{{ tomcat_dir }}/webapps/ROOT.war"
+            owner: tomcat
+            group: tomcat
+
+        - name: Start Tomcat
+          systemd:
+            name: tomcat
+            state: started
+
+    - name: Print completion message
+      debug:
+        msg: "Tomcat setup and deployment is complete."

@@ -1,0 +1,60 @@
+- name: Install and configure Nginx for vproapp
+  hosts: all
+  become: true
+  tasks:
+    - name: Update package lists
+      apt:
+        update_cache: yes
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Create Nginx configuration file for vproapp
+      copy:
+        dest: /etc/nginx/sites-available/vproapp
+        content: |
+          upstream vproapp {
+              server app01:8080;
+          }
+          server {
+              listen 80;
+              location / {
+                  proxy_pass http://vproapp;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Remove default Nginx configuration
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Create symlink to activate vproapp site
+      file:
+        src: /etc/nginx/sites-available/vproapp
+        dest: /etc/nginx/sites-enabled/vproapp
+        state: link
+
+    - name: Check Nginx configuration for syntax errors
+      command: nginx -t
+      register: nginx_test
+      failed_when: "'syntax is ok' not in nginx_test.stderr"
+
+    - name: Restart and enable Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: true
+
+  post_tasks:
+    - name: Output message
+      debug:
+        msg: "Nginx setup and configuration is complete."
