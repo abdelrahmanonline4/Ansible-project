@@ -1,4 +1,4 @@
-رش
+
 # What tools will we use in the project?
 
 # Prerequisite
