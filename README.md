@@ -1,14 +1,17 @@
+# Anaible&Vagrant project
 
-# What tools will we use in the project?
+
+
 
 # Prerequisite
-Oracle VM Virtualbox
 
-ansible
+1: Oracle VM Virtualbox
 
-Vagrant
+2: ansible
 
-Vagrant plugins
+3: Vagrant
+
+4: Vagrant plugins
 
 
 ![image](https://github.com/user-attachments/assets/75d1eb7e-4687-438a-8592-ccbc9144fc32)
